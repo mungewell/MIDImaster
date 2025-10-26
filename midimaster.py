@@ -34,6 +34,8 @@ SHUTDOWN_FLAG = False
 DEFAULT_BPM = 120.0
 PPQN = 24
 
+tap_list = []
+
 # --- Performance State ---
 class PerformanceState:
     def __init__(self):
@@ -264,6 +266,32 @@ def stop_clock(*args):
     set_feedback_message("STOPPED")
     send_osc_message(OSC_ADDRESSES["STATUS"], "STOPPED")
 
+def tap_tempo(*args):
+    global tap_list
+    now = time.time_ns() / 1000000000
+
+    # purge old taps, older than 5s ago
+    if len(tap_list):
+        for i in range(len(tap_list)-1, 0, -1):
+            if tap_list[i][0] < (now-5):
+                tap_list = tap_list[i:-1]
+                break
+    #print("taps after purge", len(tap_list))
+
+    # add 'time,delta' to end of list
+    if len(tap_list):
+        tap_list.append([now, now - tap_list[-1][0]])
+    else:
+        tap_list.append([now, 0])
+
+    # after 3 taps, average time between taps
+    length = len(tap_list)
+    if length > 2:
+        s = 0
+        for i in range(1, length):
+            s += tap_list[i][1]
+        set_bpm(60 / (s / (length-1)))
+
 def set_feedback_message(message):
     performance_state.last_feedback_message = message
     performance_state.feedback_message_time = time.time()
@@ -408,6 +436,10 @@ def build_key_bindings():
         if performance_state.status != "STOPPED":
             stop_clock()
             
+    @kb.add('t')
+    def _(event):
+        tap_tempo()
+
     return kb
 
 def global_midi_callback(msg, port_name):
