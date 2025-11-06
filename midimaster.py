@@ -501,6 +501,8 @@ def process_midi_mappings(msg, port_name):
             if map_event == "note" and msg.type in ["note_on", "note_off"]: is_event_match = True
             elif map_event == "cc" and msg.type == "control_change": is_event_match = True
             elif map_event == "pc" and msg.type == "program_change": is_event_match = True
+            elif map_event == "start" and msg.type == "sysex" and list(msg.data) == [127,10,6,1]: is_event_match = True
+            elif map_event == "stop" and msg.type == "sysex" and list(msg.data) == [127,0,6,2]: is_event_match = True
             elif msg.type == map_event: is_event_match = True
         if not is_event_match: continue
         
