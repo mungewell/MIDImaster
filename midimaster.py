@@ -49,6 +49,10 @@ class PerformanceState:
         self.tap_list = []
         self.tap_count = 3
         self.tap_granularity = 0.1
+        self.click = False
+        self.click_note = 0
+        self.click_ch = 0
+        self.click_ppqn = 0
 
 performance_state = PerformanceState()
 midi_clock_thread = None
@@ -127,6 +131,14 @@ def load_rule_file(fp: Path):
              # Guardaremos el alias para resolverlo después
              performance_state.default_device_out_alias_from_json = default_out_alias
 
+        click = False
+        if clock_settings.get("click_note"):
+            performance_state.click_note = clock_settings.get("click_note")
+            click = True
+        if clock_settings.get("click_ch"):
+            performance_state.click_ch = clock_settings.get("click_ch")
+            click = True
+        performance_state.click = click
 
     return True # Indicar éxito
 
@@ -182,6 +194,7 @@ def midi_clock_sender():
     # Variables para un timing más preciso
     last_pulse_time = 0
     pulse_interval = 0 # Se calculará en el bucle
+    click_message = None
 
     while not SHUTDOWN_FLAG:
         current_time = time.perf_counter()
@@ -198,12 +211,31 @@ def midi_clock_sender():
             
             if current_time >= last_pulse_time:
                 clock_message = mido.Message('clock')
+
+                if performance_state.click and performance_state.click_ppqn == 0:
+                    click_message = mido.Message('note_on', \
+                            channel=performance_state.click_ch, note=performance_state.click_note)
+
                 for port in performance_state.output_ports:
                     try:
                         port.send(clock_message)
                     except Exception: pass
+
+                    if click_message:
+                        try:
+                            port.send(click_message)
+                        except Exception: pass
                 
                 last_pulse_time += pulse_interval # Programar el siguiente pulso
+
+                if performance_state.click:
+                    if performance_state.click_ppqn == 0:
+                        performance_state.click_ppqn = PPQN - 1
+                        click_message = mido.Message('note_off', \
+                                channel=performance_state.click_ch, note=performance_state.click_note)
+                    else:
+                        performance_state.click_ppqn -= 1
+                        click_message = None
 
             # Dormir hasta un poco antes del siguiente pulso teórico
             # Esto es una heurística, no un reloj de alta precisión en tiempo real.
@@ -214,8 +246,16 @@ def midi_clock_sender():
             # Si estamos retrasados, el bucle se ejecutará inmediatamente.
 
         else: # STOPPED o PAUSED
+            if click_message and click_message.type == 'note_off':
+                for port in performance_state.output_ports:
+                    try:
+                        port.send(click_message)
+                    except Exception: pass
+                click_message = None
+
             if performance_state.status == "STOPPED":
                 last_pulse_time = 0 # Resetear para la próxima vez que se dé a play
+                performance_state.click_ppqn = 0
             time.sleep(0.01) # Menor consumo de CPU cuando no está activo
 
 
